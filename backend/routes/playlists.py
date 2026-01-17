@@ -14,17 +14,23 @@ def get_playlists():
     try:
         if user_id:
             cursor.execute('''
-                SELECT p.playlist_id, p.name, p.user_id, u.username
+                SELECT p.playlist_id, p.name, p.user_id, u.username,
+                       COUNT(ps.song_id) as song_count
                 FROM playlists p
                 LEFT JOIN users u ON p.user_id = u.user_id
+                LEFT JOIN playlist_songs ps ON p.playlist_id = ps.playlist_id
                 WHERE p.user_id = %s
+                GROUP BY p.playlist_id, p.name, p.user_id, u.username
                 ORDER BY p.playlist_id
             ''', (user_id,))
         else:
             cursor.execute('''
-                SELECT p.playlist_id, p.name, p.user_id, u.username
+                SELECT p.playlist_id, p.name, p.user_id, u.username,
+                       COUNT(ps.song_id) as song_count
                 FROM playlists p
                 LEFT JOIN users u ON p.user_id = u.user_id
+                LEFT JOIN playlist_songs ps ON p.playlist_id = ps.playlist_id
+                GROUP BY p.playlist_id, p.name, p.user_id, u.username
                 ORDER BY p.playlist_id
             ''')
         
@@ -34,7 +40,8 @@ def get_playlists():
             'playlist_id': row[0],
             'name': row[1],
             'user_id': row[2],
-            'username': row[3]
+            'username': row[3],
+            'song_count': row[4]
         } for row in playlists]
         
         return jsonify(result), 200

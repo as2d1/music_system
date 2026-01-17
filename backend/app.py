@@ -64,10 +64,6 @@ def _detect_audio_mimetype(file_path: str) -> Optional[str]:
 
     return None
 
-@app.route('/')
-def index():
-    return {'message': '音乐管理系统API', 'status': 'running'}
-
 @app.route('/uploads/<path:filename>')
 def uploaded_file(filename):
     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -97,6 +93,18 @@ def health():
         return {'status': 'ok', 'database': 'connected'}
     except Exception as e:
         return {'status': 'error', 'database': 'disconnected', 'error': str(e)}, 500
+
+# 前端静态文件服务 - catch-all必须在最后定义
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def catch_all(path):
+    dist_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'dist')
+  
+    file_path = os.path.join(dist_path, path)
+    if path and os.path.isfile(file_path):
+        return send_from_directory(dist_path, path)
+
+    return send_from_directory(dist_path, 'index.html')
 
 if __name__ == '__main__':
     try:

@@ -27,7 +27,7 @@
             <el-icon :size="50" color="#fff">
               <Menu />
             </el-icon>
-            <div class="playlist-count">{{ playlist.songs?.length || 0 }} 首</div>
+            <div class="playlist-count">{{ playlist.song_count || 0 }} 首</div>
           </div>
           <div class="playlist-info">
             <h3>{{ playlist.name }}</h3>

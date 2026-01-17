@@ -19,9 +19,9 @@ WORKDIR /app
 RUN yum install -y python3 python3-pip nc && \
     pip3 install --upgrade pip
 
-COPY --from=frontend-builder /frontend/dist dist
-
 COPY backend/ .
+
+COPY --from=frontend-builder /frontend/dist dist
 
 RUN pip3 install -r requirements.txt
 
@@ -34,7 +34,7 @@ while ! python3 -c "import psycopg2; from config import Config; psycopg2.connect
     sleep 10
 done
 
-python3 init_db.py && python3 app.py && python -m http.server 8000 --directory dist
+python3 init_db.py && python3 app.py
 
 EOF
 
