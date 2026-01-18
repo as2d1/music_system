@@ -28,6 +28,7 @@
           v-for="album in filteredAlbums"
           :key="album.album_id"
           class="album-card"
+          @click="handleView(album)"
         >
           <div class="album-cover">
             <el-icon :size="60" color="#fff">
@@ -45,7 +46,7 @@
             <el-button
               type="primary"
               size="small"
-              @click="handleEdit(album)"
+              @click.stop="handleEdit(album)"
               :icon="Edit"
             >
               编辑
@@ -53,7 +54,7 @@
             <el-button
               type="danger"
               size="small"
-              @click="handleDelete(album)"
+              @click.stop="handleDelete(album)"
               :icon="Delete"
             >
               删除
@@ -114,23 +115,112 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 专辑歌曲抽屉 -->
+    <el-drawer
+      v-model="detailVisible"
+      direction="rtl"
+      size="720px"
+      :with-header="false"
+    >
+      <div class="album-detail">
+        <div class="detail-header">
+          <div class="detail-cover">
+            <el-icon :size="64" color="#fff">
+              <Collection />
+            </el-icon>
+          </div>
+          <div class="detail-info">
+            <div class="detail-title">{{ selectedAlbum?.title || '专辑' }}</div>
+            <div class="detail-artist">
+              <el-icon><User /></el-icon>
+              <span>{{ selectedAlbum?.artist_name || '未知歌手' }}</span>
+            </div>
+            <div class="detail-meta">
+              共 {{ albumSongs.length }} 首歌曲
+            </div>
+            <div class="detail-actions">
+              <el-button
+                type="primary"
+                :icon="VideoPlay"
+                @click="handlePlayAll"
+                :disabled="albumSongs.length === 0"
+              >
+                播放全部
+              </el-button>
+            </div>
+          </div>
+        </div>
+
+        <div class="detail-content" v-loading="songsLoading">
+          <el-table
+            :data="albumSongs"
+            style="width: 100%"
+            :header-cell-style="{ background: '#fafafa', color: '#333' }"
+            stripe
+          >
+            <el-table-column type="index" label="#" width="60" align="center" />
+            <el-table-column label="播放" width="80" align="center">
+              <template #default="{ row }">
+                <el-button
+                  type="primary"
+                  circle
+                  size="small"
+                  :icon="VideoPlay"
+                  @click="handlePlay(row)"
+                  :disabled="!row.file_url"
+                />
+              </template>
+            </el-table-column>
+            <el-table-column prop="title" label="歌曲名称" min-width="200" />
+            <el-table-column prop="artist_name" label="歌手" min-width="150">
+              <template #default="{ row }">
+                <el-tag v-if="row.artist_name" type="info" effect="plain">
+                  {{ row.artist_name }}
+                </el-tag>
+                <span v-else style="color: #999">未知歌手</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="duration" label="时长" width="120" align="center">
+              <template #default="{ row }">
+                {{ formatDuration(row.duration) }}
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <el-empty
+            v-if="albumSongs.length === 0 && !songsLoading"
+            description="暂无歌曲"
+          />
+        </div>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, Collection, User } from '@element-plus/icons-vue'
-import { albumsAPI, artistsAPI } from '@/api'
+import { Plus, Edit, Delete, Collection, User, VideoPlay } from '@element-plus/icons-vue'
+import { albumsAPI, artistsAPI, songsAPI } from '@/api'
+import { usePlayerStore } from '@/stores/player'
+import { useRoute } from 'vue-router'
 
 const albums = ref([])
 const artists = ref([])
+const songs = ref([])
 const loading = ref(false)
 const submitLoading = ref(false)
 const dialogVisible = ref(false)
 const isEdit = ref(false)
 const searchKeyword = ref('')
 const formRef = ref(null)
+const detailVisible = ref(false)
+const selectedAlbum = ref(null)
+const songsLoading = ref(false)
+
+const playerStore = usePlayerStore()
+const route = useRoute()
 
 const formData = reactive({
   album_id: null,
@@ -154,6 +244,18 @@ const filteredAlbums = computed(() => {
   )
 })
 
+const albumSongs = computed(() => {
+  if (!selectedAlbum.value) return []
+  return songs.value.filter(song => song.album_id === selectedAlbum.value.album_id)
+})
+
+const formatDuration = (seconds) => {
+  if (!seconds && seconds !== 0) return '--:--'
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
 const loadAlbums = async () => {
   loading.value = true
   try {
@@ -162,6 +264,17 @@ const loadAlbums = async () => {
     console.error('加载专辑失败:', error)
   } finally {
     loading.value = false
+  }
+}
+
+const loadSongs = async () => {
+  songsLoading.value = true
+  try {
+    songs.value = await songsAPI.getAll()
+  } catch (error) {
+    console.error('加载歌曲失败:', error)
+  } finally {
+    songsLoading.value = false
   }
 }
 
@@ -206,6 +319,39 @@ const handleDelete = (row) => {
   }).catch(() => {})
 }
 
+const handleView = async (album) => {
+  selectedAlbum.value = album
+  detailVisible.value = true
+  if (songs.value.length === 0) {
+    await loadSongs()
+  }
+}
+
+const openAlbumById = async (albumId) => {
+  const id = Number(albumId)
+  if (!id) return
+  if (albums.value.length === 0) {
+    await loadAlbums()
+  }
+  const target = albums.value.find(item => item.album_id === id)
+  if (target) {
+    await handleView(target)
+  }
+}
+
+const handlePlay = (song) => {
+  if (!song?.file_url) return
+  playerStore.setPlaylist(albumSongs.value)
+  playerStore.play(song)
+}
+
+const handlePlayAll = () => {
+  const playable = albumSongs.value.filter(item => item.file_url)
+  if (playable.length === 0) return
+  playerStore.setPlaylist(playable)
+  playerStore.play(playable[0])
+}
+
 const handleSubmit = async () => {
   try {
     await formRef.value?.validate()
@@ -243,7 +389,18 @@ const resetForm = () => {
 onMounted(() => {
   loadAlbums()
   loadArtists()
+  loadSongs()
 })
+
+watch(
+  () => route.query.albumId,
+  (albumId) => {
+    if (albumId) {
+      openAlbumById(albumId)
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <style scoped>
@@ -361,5 +518,74 @@ onMounted(() => {
 
 .album-actions .el-button {
   flex: 1;
+}
+
+.album-detail {
+  padding: 20px;
+}
+
+.detail-header {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.detail-cover {
+  width: 140px;
+  height: 140px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.detail-cover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2) 0%, transparent 70%);
+}
+
+.detail-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: #333;
+}
+
+.detail-artist {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #666;
+  font-size: 14px;
+}
+
+.detail-meta {
+  color: #999;
+  font-size: 13px;
+}
+
+.detail-actions {
+  margin-top: 8px;
+}
+
+.detail-content {
+  padding-bottom: 20px;
 }
 </style>
