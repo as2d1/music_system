@@ -11,6 +11,10 @@ export default defineConfig({
     }
   },
   server: {
+    host: true,                
+    allowedHosts: [
+      '.ngrok-free.app'   // 允许 ngrok 域名
+    ],
     port: 3000,
     proxy: {
       '/api': {
