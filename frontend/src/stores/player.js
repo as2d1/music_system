@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useUserStore } from '@/stores/user'
 
 export const usePlayerStore = defineStore('player', () => {
   const currentSong = ref(null)
@@ -26,9 +27,21 @@ export const usePlayerStore = defineStore('player', () => {
     return fileUrl
   }
 
+  const appendToken = (url) => {
+    if (!url) return ''
+    if (!url.startsWith('/api/songs/') || !url.includes('/stream')) return url
+
+    const userStore = useUserStore()
+    const token = userStore.token
+    if (!token) return url
+
+    const sep = url.includes('?') ? '&' : '?'
+    return `${url}${sep}token=${encodeURIComponent(token)}`
+  }
+
   const currentSongUrl = computed(() => {
     if (!currentSong.value) return ''
-    return normalizeToApiUrl(currentSong.value.file_url)
+    return appendToken(normalizeToApiUrl(currentSong.value.file_url))
   })
 
   const setPlaylist = (songs) => {

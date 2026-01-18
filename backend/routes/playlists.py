@@ -75,7 +75,7 @@ def get_playlist(playlist_id):
         cursor.execute('''
             SELECT s.song_id, s.title, s.duration,
                    ar.name as artist_name, al.title as album_title,
-                   s.file_url
+                   CASE WHEN s.file_data IS NOT NULL THEN 1 ELSE 0 END as has_file
             FROM playlist_songs ps
             JOIN songs s ON ps.song_id = s.song_id
             LEFT JOIN artists ar ON s.artist_id = ar.artist_id
@@ -97,7 +97,7 @@ def get_playlist(playlist_id):
                 'duration': song[2],
                 'artist_name': song[3],
                 'album_title': song[4],
-                'file_url': f"{base_url}{song[5]}" if song[5] else None
+                'file_url': f"{base_url}/api/songs/{song[0]}/stream" if song[5] else None
             } for song in songs]
         }
         

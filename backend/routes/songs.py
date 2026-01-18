@@ -1,6 +1,6 @@
-from flask import Blueprint, request, jsonify, current_app
-from werkzeug.utils import secure_filename
-import os
+from flask import Blueprint, request, jsonify, send_file
+import io
+import psycopg2
 import jwt
 from datetime import datetime
 from config import Config
@@ -10,10 +10,14 @@ songs_bp = Blueprint('songs', __name__)
 
 def get_current_user_id():
     auth_header = request.headers.get('Authorization')
-    if not auth_header:
-        return None
     try:
-        token = auth_header.split(" ")[1]
+        token = None
+        if auth_header:
+            token = auth_header.split(" ")[1]
+        if not token:
+            token = request.args.get('token')
+        if not token:
+            return None
         payload = jwt.decode(token, Config.SECRET_KEY, algorithms=["HS256"])
         return payload.get('user_id')
     except:
@@ -42,7 +46,7 @@ def get_songs():
             SELECT s.song_id, s.title, s.duration,
                    s.artist_id, ar.name as artist_name,
                    s.album_id, al.title as album_title,
-                   s.file_url
+                   CASE WHEN s.file_data IS NOT NULL THEN 1 ELSE 0 END as has_file
             FROM songs s
             LEFT JOIN artists ar ON s.artist_id = ar.artist_id
             LEFT JOIN albums al ON s.album_id = al.album_id
@@ -60,7 +64,7 @@ def get_songs():
             'artist_name': row[4],
             'album_id': row[5],
             'album_title': row[6],
-            'file_url': f"{base_url}{row[7]}" if row[7] else None
+            'file_url': f"{base_url}/api/songs/{row[0]}/stream" if row[7] else None
         } for row in songs]
         
         return jsonify(result), 200
@@ -86,7 +90,7 @@ def get_song(song_id):
             SELECT s.song_id, s.title, s.duration,
                    s.artist_id, ar.name as artist_name,
                    s.album_id, al.title as album_title,
-                   s.file_url
+                   CASE WHEN s.file_data IS NOT NULL THEN 1 ELSE 0 END as has_file
             FROM songs s
             LEFT JOIN artists ar ON s.artist_id = ar.artist_id
             LEFT JOIN albums al ON s.album_id = al.album_id
@@ -106,7 +110,7 @@ def get_song(song_id):
             'artist_name': song[4],
             'album_id': song[5],
             'album_title': song[6],
-            'file_url': f"{base_url}{song[7]}" if song[7] else None
+            'file_url': f"{base_url}/api/songs/{song[0]}/stream" if song[7] else None
         }), 200
     
     except Exception as e:
@@ -141,12 +145,11 @@ def create_song():
     if duration is None:
         return jsonify({'error': '时长必须为整数(秒)'}), 400
 
-    os.makedirs(current_app.config['UPLOAD_FOLDER'], exist_ok=True)
+    file_data = file.read()
+    if not file_data:
+        return jsonify({'error': '文件为空'}), 400
 
-    # 保存文件
-    filename = secure_filename(f"{datetime.now().timestamp()}_{file.filename}")
-    file.save(os.path.join(current_app.config['UPLOAD_FOLDER'], filename))
-    file_url = f"/uploads/{filename}"
+    file_mime = file.mimetype or 'application/octet-stream'
     upload_time = datetime.now()
 
     conn = get_db()
@@ -154,13 +157,13 @@ def create_song():
     
     try:
         cursor.execute(
-            'INSERT INTO songs (title, artist_id, album_id, duration, file_url, user_id, upload_time) VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING song_id',
-            (title, artist_id, album_id, duration, file_url, user_id, upload_time)
+            'INSERT INTO songs (title, artist_id, album_id, duration, file_url, file_data, file_mime, user_id, upload_time) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING song_id',
+            (title, artist_id, album_id, duration, None, psycopg2.Binary(file_data), file_mime, user_id, upload_time)
         )
         song_id = cursor.fetchone()[0]
         conn.commit()
         base_url = request.host_url.rstrip('/')
-        full_file_url = f"{base_url}{file_url}"
+        full_file_url = f"{base_url}/api/songs/{song_id}/stream"
         return jsonify({'message': '创建成功', 'song_id': song_id, 'file_url': full_file_url}), 201
     
     except Exception as e:
@@ -238,6 +241,39 @@ def delete_song(song_id):
     
     except Exception as e:
         conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        close_db(conn)
+
+@songs_bp.route('/<int:song_id>/stream', methods=['GET'])
+def stream_song(song_id):
+    """从数据库中读取歌曲并流式返回"""
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未授权'}), 401
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute(
+            'SELECT file_data, file_mime FROM songs WHERE song_id = %s AND user_id = %s',
+            (song_id, user_id)
+        )
+        row = cursor.fetchone()
+        if not row or not row[0]:
+            return jsonify({'error': '歌曲文件不存在'}), 404
+
+        file_data, file_mime = row
+        return send_file(
+            io.BytesIO(file_data),
+            mimetype=file_mime or 'application/octet-stream',
+            as_attachment=False,
+            download_name=f"song_{song_id}",
+            conditional=True
+        )
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()

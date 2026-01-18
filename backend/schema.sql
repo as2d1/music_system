@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS songs (
     album_id      INT REFERENCES albums(album_id),
     duration      INT,
     file_url      VARCHAR(255),
+    file_data     BYTEA,
+    file_mime     VARCHAR(100),
     user_id       INT REFERENCES users(user_id),
     upload_time   TIMESTAMP
 );
