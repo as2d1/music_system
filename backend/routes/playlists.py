@@ -74,7 +74,8 @@ def get_playlist(playlist_id):
         # 获取歌单中的歌曲
         cursor.execute('''
             SELECT s.song_id, s.title, s.duration,
-                   ar.name as artist_name, al.title as album_title
+                   ar.name as artist_name, al.title as album_title,
+                   s.file_url
             FROM playlist_songs ps
             JOIN songs s ON ps.song_id = s.song_id
             LEFT JOIN artists ar ON s.artist_id = ar.artist_id
@@ -82,6 +83,8 @@ def get_playlist(playlist_id):
             WHERE ps.playlist_id = %s
         ''', (playlist_id,))
         songs = cursor.fetchall()
+
+        base_url = request.host_url.rstrip('/')
         
         result = {
             'playlist_id': playlist[0],
@@ -93,7 +96,8 @@ def get_playlist(playlist_id):
                 'title': song[1],
                 'duration': song[2],
                 'artist_name': song[3],
-                'album_title': song[4]
+                'album_title': song[4],
+                'file_url': f"{base_url}{song[5]}" if song[5] else None
             } for song in songs]
         }
         

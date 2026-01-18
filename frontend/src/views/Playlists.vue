@@ -91,9 +91,19 @@
     >
       <div class="playlist-detail">
         <div class="detail-header">
-          <el-button type="primary" @click="showAddSongDialog" :icon="Plus">
-            添加歌曲
-          </el-button>
+          <div class="detail-actions">
+            <el-button
+              type="primary"
+              :icon="VideoPlay"
+              @click="handlePlayAll"
+              :disabled="!(currentPlaylist?.songs || []).length"
+            >
+              播放全部
+            </el-button>
+            <el-button type="primary" @click="showAddSongDialog" :icon="Plus">
+              添加歌曲
+            </el-button>
+          </div>
         </div>
 
         <el-table
@@ -102,6 +112,18 @@
           v-loading="detailLoading"
         >
           <el-table-column type="index" label="#" width="60" />
+          <el-table-column label="播放" width="80" align="center">
+            <template #default="{ row }">
+              <el-button
+                type="primary"
+                circle
+                size="small"
+                :icon="VideoPlay"
+                @click="handlePlay(row)"
+                :disabled="!row.file_url"
+              />
+            </template>
+          </el-table-column>
           <el-table-column prop="title" label="歌曲名称" min-width="200" />
           <el-table-column prop="artist_name" label="歌手" min-width="150" />
           <el-table-column prop="album_title" label="专辑" min-width="150" />
@@ -128,7 +150,11 @@
         <el-empty
           v-if="!currentPlaylist?.songs?.length && !detailLoading"
           description="歌单是空的，快去添加歌曲吧"
-        />
+        >
+          <el-button type="primary" @click="showAddSongDialog" :icon="Plus">
+            去添加歌曲
+          </el-button>
+        </el-empty>
       </div>
     </el-dialog>
 
@@ -174,11 +200,13 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, Menu } from '@element-plus/icons-vue'
+import { Plus, Delete, Menu, VideoPlay } from '@element-plus/icons-vue'
 import { playlistsAPI, songsAPI } from '@/api'
 import { useUserStore } from '@/stores/user'
+import { usePlayerStore } from '@/stores/player'
 
 const userStore = useUserStore()
+const playerStore = usePlayerStore()
 
 const playlists = ref([])
 const allSongs = ref([])
@@ -242,6 +270,24 @@ const loadAllSongs = async () => {
   }
 }
 
+const hydratePlaylistSongs = (playlist) => {
+  if (!playlist?.songs || allSongs.value.length === 0) return playlist
+  const songMap = new Map(allSongs.value.map(song => [song.song_id, song]))
+  playlist.songs = playlist.songs.map(song => {
+    const matched = songMap.get(song.song_id)
+    if (!matched) return song
+    return {
+      ...matched,
+      ...song,
+      file_url: song.file_url || matched.file_url,
+      artist_name: song.artist_name || matched.artist_name,
+      album_title: song.album_title || matched.album_title,
+      duration: song.duration ?? matched.duration
+    }
+  })
+  return playlist
+}
+
 const handleAddPlaylist = () => {
   createDialogVisible.value = true
 }
@@ -291,7 +337,11 @@ const viewPlaylistDetail = async (playlist) => {
   detailDialogVisible.value = true
   
   try {
-    currentPlaylist.value = await playlistsAPI.getOne(playlist.playlist_id)
+    if (allSongs.value.length === 0) {
+      await loadAllSongs()
+    }
+    const data = await playlistsAPI.getOne(playlist.playlist_id)
+    currentPlaylist.value = hydratePlaylistSongs(data)
   } catch (error) {
     console.error('加载歌单详情失败:', error)
   } finally {
@@ -313,7 +363,7 @@ const handleAddSongToPlaylist = async (song) => {
     
     // 重新加载歌单详情
     const updated = await playlistsAPI.getOne(currentPlaylist.value.playlist_id)
-    currentPlaylist.value = updated
+    currentPlaylist.value = hydratePlaylistSongs(updated)
   } catch (error) {
     console.error('添加失败:', error)
   }
@@ -335,11 +385,32 @@ const handleRemoveSong = (song) => {
       
       // 重新加载歌单详情
       const updated = await playlistsAPI.getOne(currentPlaylist.value.playlist_id)
-      currentPlaylist.value = updated
+      currentPlaylist.value = hydratePlaylistSongs(updated)
     } catch (error) {
       console.error('移除失败:', error)
     }
   }).catch(() => {})
+}
+
+const handlePlay = (song) => {
+  const list = currentPlaylist.value?.songs || []
+  const playableSong = song?.file_url
+    ? song
+    : (allSongs.value.find(item => item.song_id === song?.song_id) || song)
+  if (!playableSong?.file_url) return
+  playerStore.setPlaylist(list)
+  playerStore.play(playableSong)
+}
+
+const handlePlayAll = () => {
+  const list = (currentPlaylist.value?.songs || []).map(item => {
+    if (item.file_url) return item
+    const matched = allSongs.value.find(song => song.song_id === item.song_id)
+    return matched ? { ...item, file_url: matched.file_url } : item
+  }).filter(item => item.file_url)
+  if (list.length === 0) return
+  playerStore.setPlaylist(list)
+  playerStore.play(list[0])
 }
 
 const resetCreateForm = () => {
@@ -456,5 +527,15 @@ onMounted(() => {
 
 .detail-header {
   margin-bottom: 15px;
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 </style>

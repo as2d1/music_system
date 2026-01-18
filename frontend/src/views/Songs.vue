@@ -15,9 +15,33 @@
           class="search-input"
           clearable
         />
+        <el-button
+          type="primary"
+          plain
+          :icon="VideoPlay"
+          @click="handlePlayAll"
+          :disabled="playableSongs.length === 0"
+        >
+          播放全部
+        </el-button>
+        <el-button
+          @click="triggerBatchImport"
+          :loading="batchImporting"
+        >
+          批量导入
+        </el-button>
         <el-button type="primary" @click="handleAdd" :icon="Plus">
           添加歌曲
         </el-button>
+        <input
+          ref="batchInputRef"
+          type="file"
+          accept="audio/*"
+          multiple
+          class="file-input"
+          style="display: none"
+          @change="handleBatchFileChange"
+        />
       </div>
     </div>
 
@@ -193,6 +217,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete, VideoPlay } from '@element-plus/icons-vue'
 import { songsAPI, artistsAPI, albumsAPI } from '@/api'
 import { usePlayerStore } from '@/stores/player'
+import { parseBlob } from 'music-metadata-browser'
 
 const playerStore = usePlayerStore()
 
@@ -209,6 +234,8 @@ const formRef = ref(null)
 const file = ref(null)
 const currentSong = ref(null)
 const audioRef = ref(null)
+const batchInputRef = ref(null)
+const batchImporting = ref(false)
 
 const formData = reactive({
   song_id: null,
@@ -243,6 +270,10 @@ const filteredSongs = computed(() => {
     song.artist_name?.toLowerCase().includes(keyword) ||
     song.album_title?.toLowerCase().includes(keyword)
   )
+})
+
+const playableSongs = computed(() => {
+  return filteredSongs.value.filter(song => song.file_url)
 })
 
 // 格式化时长
@@ -280,6 +311,82 @@ const loadAlbums = async () => {
     albums.value = await albumsAPI.getAll()
   } catch (error) {
     console.error('加载专辑失败:', error)
+  }
+}
+
+const normalizeName = (val) => (val || '').trim()
+
+const findArtistByName = (name) => {
+  const key = normalizeName(name).toLowerCase()
+  return artists.value.find(item => (item.name || '').trim().toLowerCase() === key)
+}
+
+const findAlbumByTitle = (title, artistId) => {
+  const key = normalizeName(title).toLowerCase()
+  return albums.value.find(item => {
+    const sameTitle = (item.title || '').trim().toLowerCase() === key
+    if (!sameTitle) return false
+    if (artistId) return item.artist_id === artistId
+    return true
+  })
+}
+
+const ensureArtistByName = async (name) => {
+  const artistName = normalizeName(name)
+  if (!artistName) return null
+  if (artists.value.length === 0) {
+    await loadArtists()
+  }
+  const existing = findArtistByName(artistName)
+  if (existing) return existing.artist_id
+
+  try {
+    await ElMessageBox.confirm(
+      `未找到歌手“${artistName}”，是否添加？`,
+      '提示',
+      {
+        confirmButtonText: '添加',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await artistsAPI.create({ name: artistName })
+    await loadArtists()
+    const created = findArtistByName(artistName)
+    return created?.artist_id || null
+  } catch {
+    return null
+  }
+}
+
+const ensureAlbumByTitle = async (title, artistId) => {
+  const albumTitle = normalizeName(title)
+  if (!albumTitle) return null
+  if (albums.value.length === 0) {
+    await loadAlbums()
+  }
+  const existing = findAlbumByTitle(albumTitle, artistId)
+  if (existing) return existing.album_id
+
+  try {
+    await ElMessageBox.confirm(
+      `未找到专辑“${albumTitle}”，是否添加？`,
+      '提示',
+      {
+        confirmButtonText: '添加',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    await albumsAPI.create({
+      title: albumTitle,
+      artist_id: artistId || null
+    })
+    await loadAlbums()
+    const created = findAlbumByTitle(albumTitle, artistId)
+    return created?.album_id || null
+  } catch {
+    return null
   }
 }
 
@@ -345,6 +452,92 @@ const handlePlay = (row) => {
   ensurePlayerBarSafeArea()
   playerStore.setPlaylist(songs.value)
   playerStore.play(row)
+}
+
+const handlePlayAll = () => {
+  const list = playableSongs.value
+  if (list.length === 0) return
+  ensurePlayerBarSafeArea()
+  playerStore.setPlaylist(list)
+  playerStore.play(list[0])
+}
+
+const getAudioDuration = (blob) => {
+  return new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(blob)
+      const audio = new Audio()
+      audio.preload = 'metadata'
+      audio.src = url
+      audio.onloadedmetadata = () => {
+        const dur = Number.isFinite(audio.duration) ? Math.round(audio.duration) : 0
+        URL.revokeObjectURL(url)
+        resolve(dur)
+      }
+      audio.onerror = () => {
+        URL.revokeObjectURL(url)
+        resolve(0)
+      }
+    } catch {
+      resolve(0)
+    }
+  })
+}
+
+const triggerBatchImport = () => {
+  batchInputRef.value?.click()
+}
+
+const handleBatchFileChange = async (e) => {
+  const files = Array.from(e.target.files || [])
+  if (files.length === 0) return
+  batchImporting.value = true
+  let success = 0
+  let failed = 0
+
+  for (const f of files) {
+    try {
+      const metadata = await parseBlob(f).catch(() => null)
+      const common = metadata?.common || {}
+      const titleFromMeta = normalizeName(common.title)
+      const artistFromMeta = normalizeName(common.artist || common.albumartist || (common.artists && common.artists[0]))
+      const albumFromMeta = normalizeName(common.album)
+
+      const title = titleFromMeta || f.name.replace(/\.[^/.]+$/, '')
+      const artistId = artistFromMeta ? await ensureArtistByName(artistFromMeta) : null
+      const albumId = albumFromMeta ? await ensureAlbumByTitle(albumFromMeta, artistId) : null
+
+      const durationFromMeta = Number.isFinite(metadata?.format?.duration)
+        ? Math.round(metadata.format.duration)
+        : 0
+      const duration = durationFromMeta || await getAudioDuration(f)
+
+      const data = new FormData()
+      data.append('file', f)
+      data.append('title', title)
+      if (artistId) data.append('artist_id', artistId)
+      if (albumId) data.append('album_id', albumId)
+      if (duration) data.append('duration', duration)
+
+      await songsAPI.create(data)
+      success += 1
+    } catch (err) {
+      console.error('批量导入失败:', err)
+      failed += 1
+    }
+  }
+
+  batchImporting.value = false
+  e.target.value = ''
+  loadSongs()
+  loadArtists()
+  loadAlbums()
+
+  if (failed === 0) {
+    ElMessage.success(`批量导入成功：${success} 首`)
+  } else {
+    ElMessage.warning(`导入完成：成功 ${success} 首，失败 ${failed} 首`)
+  }
 }
 
 // 删除歌曲

@@ -15,6 +15,9 @@
           class="search-input"
           clearable
         />
+        <el-button @click="openBatchImportPrompt" :loading="batchImporting">
+          批量导入
+        </el-button>
         <el-button type="primary" @click="handleAdd" :icon="Plus">
           添加歌手
         </el-button>
@@ -126,6 +129,9 @@
               >
                 播放全部
               </el-button>
+              <el-button type="primary" plain @click="openAddSongDialog">
+                添加歌曲
+              </el-button>
             </div>
           </div>
         </div>
@@ -205,6 +211,60 @@
         </el-tabs>
       </div>
     </el-drawer>
+
+    <!-- 添加歌曲到歌手对话框 -->
+    <el-dialog
+      v-model="addSongDialogVisible"
+      title="添加歌曲到歌手"
+      width="820px"
+    >
+      <el-input
+        v-model="songSearchKeyword"
+        placeholder="搜索歌曲或专辑..."
+        prefix-icon="Search"
+        class="search-input"
+        clearable
+        style="margin-bottom: 15px"
+      />
+
+      <div class="add-actions">
+        <el-button
+          type="primary"
+          @click="handleBatchAddSongs"
+          :disabled="selectedSongs.length === 0"
+          :loading="addSongsLoading"
+        >
+          批量添加
+        </el-button>
+        <span class="add-tip">已选择 {{ selectedSongs.length }} 首</span>
+      </div>
+
+      <el-table
+        :data="filteredAvailableSongs"
+        style="width: 100%"
+        max-height="420px"
+        @selection-change="handleSelectionChange"
+        v-loading="addSongsLoading"
+      >
+        <el-table-column type="selection" width="55" />
+        <el-table-column prop="title" label="歌曲名称" min-width="220" />
+        <el-table-column prop="album_title" label="专辑" min-width="180">
+          <template #default="{ row }">
+            <el-tag v-if="row.album_title" effect="plain">
+              {{ row.album_title }}
+            </el-tag>
+            <span v-else style="color: #999">未归属</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" align="center">
+          <template #default="{ row }">
+            <el-button type="primary" size="small" @click="handleAddSong(row)">
+              添加
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -230,6 +290,11 @@ const selectedArtist = ref(null)
 const songsLoading = ref(false)
 const albumsLoading = ref(false)
 const activeTab = ref('songs')
+const batchImporting = ref(false)
+const addSongDialogVisible = ref(false)
+const songSearchKeyword = ref('')
+const selectedSongs = ref([])
+const addSongsLoading = ref(false)
 
 const playerStore = usePlayerStore()
 const router = useRouter()
@@ -254,6 +319,13 @@ const filteredArtists = computed(() => {
   )
 })
 
+const normalizeName = (val) => (val || '').trim()
+
+const findArtistByName = (name) => {
+  const key = normalizeName(name).toLowerCase()
+  return artists.value.find(item => (item.name || '').trim().toLowerCase() === key)
+}
+
 const artistSongs = computed(() => {
   if (!selectedArtist.value) return []
   return songs.value.filter(song => song.artist_id === selectedArtist.value.artist_id)
@@ -262,6 +334,20 @@ const artistSongs = computed(() => {
 const artistAlbums = computed(() => {
   if (!selectedArtist.value) return []
   return albums.value.filter(album => album.artist_id === selectedArtist.value.artist_id)
+})
+
+const availableSongs = computed(() => {
+  if (!selectedArtist.value) return []
+  return songs.value.filter(song => !song.artist_id)
+})
+
+const filteredAvailableSongs = computed(() => {
+  if (!songSearchKeyword.value) return availableSongs.value
+  const keyword = songSearchKeyword.value.toLowerCase()
+  return availableSongs.value.filter(song =>
+    song.title?.toLowerCase().includes(keyword) ||
+    song.album_title?.toLowerCase().includes(keyword)
+  )
 })
 
 const formatDuration = (seconds) => {
@@ -336,6 +422,62 @@ const handleDelete = (row) => {
   }).catch(() => {})
 }
 
+const openBatchImportPrompt = async () => {
+  batchImporting.value = true
+  try {
+    const { value } = await ElMessageBox.prompt(
+      '请输入歌手名称（以换行分隔）',
+      '批量导入歌手',
+      {
+        confirmButtonText: '导入',
+        cancelButtonText: '取消',
+        inputType: 'textarea',
+        inputPlaceholder: '例如：\n周杰伦\n林俊杰\n毛不易',
+        inputValidator: (val) => (!!val && val.trim().length > 0) || '请输入歌手名称'
+      }
+    )
+
+    const text = value || ''
+    const names = text
+      .split(/\r?\n|,|;/)
+      .map(item => normalizeName(item))
+      .filter(Boolean)
+
+    let success = 0
+    let skipped = 0
+
+    for (const name of names) {
+      if (findArtistByName(name)) {
+        skipped += 1
+        continue
+      }
+      try {
+        await artistsAPI.create({ name })
+        success += 1
+      } catch {
+        // ignore single failure
+      }
+    }
+
+    await loadArtists()
+    if (success > 0) {
+      ElMessage.success(`已导入 ${success} 位歌手`)
+    } else {
+      ElMessage.info('没有新增歌手')
+    }
+    if (skipped > 0) {
+      ElMessage.info(`已跳过 ${skipped} 位已存在歌手`)
+    }
+  } catch (err) {
+    if (err !== 'cancel') {
+      console.error('批量导入失败:', err)
+      ElMessage.error('批量导入失败')
+    }
+  } finally {
+    batchImporting.value = false
+  }
+}
+
 const handleView = async (artist) => {
   selectedArtist.value = artist
   detailVisible.value = true
@@ -359,6 +501,60 @@ const handlePlayAll = () => {
   if (playable.length === 0) return
   playerStore.setPlaylist(playable)
   playerStore.play(playable[0])
+}
+
+const openAddSongDialog = async () => {
+  addSongDialogVisible.value = true
+  selectedSongs.value = []
+  songSearchKeyword.value = ''
+  if (songs.value.length === 0) {
+    await loadSongs()
+  }
+}
+
+const handleSelectionChange = (rows) => {
+  selectedSongs.value = rows
+}
+
+const updateSongArtist = async (song) => {
+  const payload = {
+    title: song.title,
+    artist_id: selectedArtist.value.artist_id,
+    album_id: song.album_id,
+    duration: song.duration
+  }
+  await songsAPI.update(song.song_id, payload)
+}
+
+const handleAddSong = async (song) => {
+  if (!selectedArtist.value) return
+  addSongsLoading.value = true
+  try {
+    await updateSongArtist(song)
+    ElMessage.success('添加成功')
+    await loadSongs()
+  } catch (error) {
+    console.error('添加失败:', error)
+    ElMessage.error('添加失败')
+  } finally {
+    addSongsLoading.value = false
+  }
+}
+
+const handleBatchAddSongs = async () => {
+  if (!selectedArtist.value || selectedSongs.value.length === 0) return
+  addSongsLoading.value = true
+  try {
+    await Promise.all(selectedSongs.value.map(song => updateSongArtist(song)))
+    ElMessage.success(`已添加 ${selectedSongs.value.length} 首歌曲`)
+    selectedSongs.value = []
+    await loadSongs()
+  } catch (error) {
+    console.error('批量添加失败:', error)
+    ElMessage.error('批量添加失败')
+  } finally {
+    addSongsLoading.value = false
+  }
 }
 
 const handleAlbumJump = (album) => {
@@ -548,6 +744,8 @@ onMounted(() => {
 
 .detail-actions {
   margin-top: 8px;
+  display: flex;
+  gap: 10px;
 }
 
 .detail-tabs {
@@ -606,5 +804,17 @@ onMounted(() => {
 .mini-album-meta {
   font-size: 12px;
   color: #999;
+}
+
+.add-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.add-tip {
+  color: #999;
+  font-size: 12px;
 }
 </style>

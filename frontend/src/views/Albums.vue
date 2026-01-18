@@ -148,6 +148,9 @@
               >
                 播放全部
               </el-button>
+              <el-button type="primary" plain @click="openAddSongDialog">
+                添加歌曲
+              </el-button>
             </div>
           </div>
         </div>
@@ -195,6 +198,68 @@
         </div>
       </div>
     </el-drawer>
+
+    <!-- 添加歌曲到专辑对话框 -->
+    <el-dialog
+      v-model="addSongDialogVisible"
+      title="添加歌曲到专辑"
+      width="800px"
+    >
+      <el-input
+        v-model="songSearchKeyword"
+        placeholder="搜索歌曲或歌手..."
+        prefix-icon="Search"
+        class="search-input"
+        clearable
+        style="margin-bottom: 15px"
+      />
+
+      <div class="add-actions">
+        <el-button
+          type="primary"
+          @click="handleBatchAddSongs"
+          :disabled="selectedSongs.length === 0"
+          :loading="addSongsLoading"
+        >
+          批量添加
+        </el-button>
+        <span class="add-tip">已选择 {{ selectedSongs.length }} 首</span>
+      </div>
+
+      <el-table
+        :data="filteredAvailableSongs"
+        style="width: 100%"
+        max-height="420px"
+        @selection-change="handleSelectionChange"
+        v-loading="addSongsLoading"
+      >
+        <el-table-column type="selection" width="55" />
+        <el-table-column prop="title" label="歌曲名称" min-width="220" />
+        <el-table-column prop="artist_name" label="歌手" min-width="150">
+          <template #default="{ row }">
+            <el-tag v-if="row.artist_name" type="info" effect="plain">
+              {{ row.artist_name }}
+            </el-tag>
+            <span v-else style="color: #999">未知歌手</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="album_title" label="专辑" min-width="150">
+          <template #default="{ row }">
+            <el-tag v-if="row.album_title" effect="plain">
+              {{ row.album_title }}
+            </el-tag>
+            <span v-else style="color: #999">未归属</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="120" align="center">
+          <template #default="{ row }">
+            <el-button type="primary" size="small" @click="handleAddSong(row)">
+              添加
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
@@ -218,6 +283,10 @@ const formRef = ref(null)
 const detailVisible = ref(false)
 const selectedAlbum = ref(null)
 const songsLoading = ref(false)
+const addSongDialogVisible = ref(false)
+const songSearchKeyword = ref('')
+const selectedSongs = ref([])
+const addSongsLoading = ref(false)
 
 const playerStore = usePlayerStore()
 const route = useRoute()
@@ -247,6 +316,20 @@ const filteredAlbums = computed(() => {
 const albumSongs = computed(() => {
   if (!selectedAlbum.value) return []
   return songs.value.filter(song => song.album_id === selectedAlbum.value.album_id)
+})
+
+const availableSongs = computed(() => {
+  if (!selectedAlbum.value) return []
+  return songs.value.filter(song => !song.album_id)
+})
+
+const filteredAvailableSongs = computed(() => {
+  if (!songSearchKeyword.value) return availableSongs.value
+  const keyword = songSearchKeyword.value.toLowerCase()
+  return availableSongs.value.filter(song =>
+    song.title?.toLowerCase().includes(keyword) ||
+    song.artist_name?.toLowerCase().includes(keyword)
+  )
 })
 
 const formatDuration = (seconds) => {
@@ -350,6 +433,60 @@ const handlePlayAll = () => {
   if (playable.length === 0) return
   playerStore.setPlaylist(playable)
   playerStore.play(playable[0])
+}
+
+const openAddSongDialog = async () => {
+  addSongDialogVisible.value = true
+  selectedSongs.value = []
+  songSearchKeyword.value = ''
+  if (songs.value.length === 0) {
+    await loadSongs()
+  }
+}
+
+const handleSelectionChange = (rows) => {
+  selectedSongs.value = rows
+}
+
+const updateSongAlbum = async (song) => {
+  const payload = {
+    title: song.title,
+    artist_id: song.artist_id,
+    album_id: selectedAlbum.value.album_id,
+    duration: song.duration
+  }
+  await songsAPI.update(song.song_id, payload)
+}
+
+const handleAddSong = async (song) => {
+  if (!selectedAlbum.value) return
+  addSongsLoading.value = true
+  try {
+    await updateSongAlbum(song)
+    ElMessage.success('添加成功')
+    await loadSongs()
+  } catch (error) {
+    console.error('添加失败:', error)
+    ElMessage.error('添加失败')
+  } finally {
+    addSongsLoading.value = false
+  }
+}
+
+const handleBatchAddSongs = async () => {
+  if (!selectedAlbum.value || selectedSongs.value.length === 0) return
+  addSongsLoading.value = true
+  try {
+    await Promise.all(selectedSongs.value.map(song => updateSongAlbum(song)))
+    ElMessage.success(`已添加 ${selectedSongs.value.length} 首歌曲`)
+    selectedSongs.value = []
+    await loadSongs()
+  } catch (error) {
+    console.error('批量添加失败:', error)
+    ElMessage.error('批量添加失败')
+  } finally {
+    addSongsLoading.value = false
+  }
 }
 
 const handleSubmit = async () => {
@@ -583,9 +720,23 @@ watch(
 
 .detail-actions {
   margin-top: 8px;
+  display: flex;
+  gap: 10px;
 }
 
 .detail-content {
   padding-bottom: 20px;
+}
+
+.add-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.add-tip {
+  color: #999;
+  font-size: 12px;
 }
 </style>
