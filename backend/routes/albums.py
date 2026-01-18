@@ -148,11 +148,22 @@ def update_album(album_id):
 @albums_bp.route('/<int:album_id>', methods=['DELETE'])
 def delete_album(album_id):
     """删除专辑"""
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未授权'}), 401
+
     conn = get_db()
     cursor = conn.cursor()
     
     try:
-        cursor.execute('DELETE FROM albums WHERE album_id = %s', (album_id,))
+        cursor.execute(
+            'UPDATE songs SET album_id = NULL WHERE album_id = %s AND user_id = %s',
+            (album_id, user_id)
+        )
+        cursor.execute(
+            'DELETE FROM albums WHERE album_id = %s AND user_id = %s',
+            (album_id, user_id)
+        )
         conn.commit()
         
         if cursor.rowcount == 0:

@@ -127,11 +127,40 @@ def update_artist(artist_id):
 @artists_bp.route('/<int:artist_id>', methods=['DELETE'])
 def delete_artist(artist_id):
     """删除歌手"""
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'error': '未授权'}), 401
+
     conn = get_db()
     cursor = conn.cursor()
     
     try:
-        cursor.execute('DELETE FROM artists WHERE artist_id = %s', (artist_id,))
+        cursor.execute(
+            'SELECT 1 FROM songs WHERE artist_id = %s LIMIT 1',
+            (artist_id,)
+        )
+        if cursor.fetchone():
+            return jsonify({'error': '请先删除该歌手相关的歌曲和专辑'}), 400
+
+        cursor.execute(
+            'SELECT 1 FROM albums WHERE artist_id = %s LIMIT 1',
+            (artist_id,)
+        )
+        if cursor.fetchone():
+            return jsonify({'error': '请先删除该歌手相关的歌曲和专辑'}), 400
+
+        cursor.execute(
+            'UPDATE albums SET artist_id = NULL WHERE artist_id = %s',
+            (artist_id,)
+        )
+        cursor.execute(
+            'UPDATE songs SET artist_id = NULL WHERE artist_id = %s',
+            (artist_id,)
+        )
+        cursor.execute(
+            'DELETE FROM artists WHERE artist_id = %s AND user_id = %s',
+            (artist_id, user_id)
+        )
         conn.commit()
         
         if cursor.rowcount == 0:

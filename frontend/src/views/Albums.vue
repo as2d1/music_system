@@ -189,6 +189,19 @@
                 {{ formatDuration(row.duration) }}
               </template>
             </el-table-column>
+            <el-table-column label="操作" width="120" align="center">
+              <template #default="{ row }">
+                <el-button
+                  type="danger"
+                  size="small"
+                  text
+                  @click="handleDeleteSong(row)"
+                  :icon="Delete"
+                >
+                  删除
+                </el-button>
+              </template>
+            </el-table-column>
           </el-table>
 
           <el-empty
@@ -487,6 +500,33 @@ const handleBatchAddSongs = async () => {
   } finally {
     addSongsLoading.value = false
   }
+}
+
+const handleDeleteSong = (song) => {
+  ElMessageBox.confirm(
+    `确定要将歌曲《${song.title}》从该专辑中移除吗？`,
+    '提示',
+    {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  ).then(async () => {
+    try {
+      const payload = {
+        title: song.title,
+        artist_id: song.artist_id ?? null,
+        album_id: null,
+        duration: song.duration
+      }
+      await songsAPI.update(song.song_id, payload)
+      ElMessage.success('已从专辑移除')
+      await loadSongs()
+    } catch (error) {
+      console.error('移除失败:', error)
+      ElMessage.error('移除失败')
+    }
+  }).catch(() => {})
 }
 
 const handleSubmit = async () => {

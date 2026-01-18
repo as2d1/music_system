@@ -33,7 +33,7 @@ request.interceptors.response.use(
       userStore.logout()
       router.push('/login')
       ElMessage.error('登录已过期，请重新登录')
-    } else {
+    } else if (!error.config?.silentError) {
       ElMessage.error(error.response?.data?.error || '请求失败')
     }
     return Promise.reject(error)
@@ -60,7 +60,7 @@ export const songsAPI = {
     return request.post('/songs/', data)
   },
   update: (id, data) => request.put(`/songs/${id}`, data),
-  delete: (id) => request.delete(`/songs/${id}`)
+  delete: (id) => request.delete(`/songs/${id}`, { silentError: true })
 }
 
 export const artistsAPI = {
@@ -68,7 +68,7 @@ export const artistsAPI = {
   getOne: (id) => request.get(`/artists/${id}`),
   create: (data) => request.post('/artists/', data),
   update: (id, data) => request.put(`/artists/${id}`, data),
-  delete: (id) => request.delete(`/artists/${id}`)
+  delete: (id) => request.delete(`/artists/${id}`, { silentError: true })
 }
 
 export const albumsAPI = {

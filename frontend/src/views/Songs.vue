@@ -557,7 +557,7 @@ const handleDelete = (row) => {
       loadSongs()
     } catch (error) {
       console.error('删除失败:', error)
-      ElMessage.error('删除失败')
+      ElMessage.error('应先删除歌单内的歌曲')
     }
   }).catch(() => {})
 }

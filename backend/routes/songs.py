@@ -217,6 +217,17 @@ def delete_song(song_id):
     cursor = conn.cursor()
     
     try:
+        cursor.execute(
+            '''
+            DELETE FROM playlist_songs ps
+            USING playlists p
+            WHERE ps.playlist_id = p.playlist_id
+              AND ps.song_id = %s
+              AND p.user_id = %s
+            ''',
+            (song_id, user_id)
+        )
+
         cursor.execute('DELETE FROM songs WHERE song_id = %s AND user_id = %s', (song_id, user_id))
         conn.commit()
         
