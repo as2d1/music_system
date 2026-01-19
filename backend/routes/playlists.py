@@ -71,16 +71,18 @@ def get_playlist(playlist_id):
         if not playlist:
             return jsonify({'error': '歌单不存在'}), 404
         
-        # 获取歌单中的歌曲
+        # 获取歌单中的歌曲，按位置排序
         cursor.execute('''
             SELECT s.song_id, s.title, s.duration,
                    ar.name as artist_name, al.title as album_title,
-                   CASE WHEN s.file_data IS NOT NULL THEN 1 ELSE 0 END as has_file
+                   CASE WHEN s.file_data IS NOT NULL THEN 1 ELSE 0 END as has_file,
+                   ps.position
             FROM playlist_songs ps
             JOIN songs s ON ps.song_id = s.song_id
             LEFT JOIN artists ar ON s.artist_id = ar.artist_id
             LEFT JOIN albums al ON s.album_id = al.album_id
             WHERE ps.playlist_id = %s
+            ORDER BY ps.position ASC
         ''', (playlist_id,))
         songs = cursor.fetchall()
 
@@ -97,7 +99,8 @@ def get_playlist(playlist_id):
                 'duration': song[2],
                 'artist_name': song[3],
                 'album_title': song[4],
-                'file_url': f"{base_url}/api/songs/{song[0]}/stream" if song[5] else None
+                'file_url': f"{base_url}/api/songs/{song[0]}/stream" if song[5] else None,
+                'position': song[6]
             } for song in songs]
         }
         
@@ -152,9 +155,25 @@ def add_song_to_playlist(playlist_id):
     cursor = conn.cursor()
     
     try:
+        # Check if song already exists in playlist
         cursor.execute(
-            'INSERT INTO playlist_songs (playlist_id, song_id) VALUES (%s, %s)',
+            'SELECT 1 FROM playlist_songs WHERE playlist_id = %s AND song_id = %s',
             (playlist_id, song_id)
+        )
+        if cursor.fetchone():
+             return jsonify({'error': '歌曲已在歌单中'}), 400
+
+        # Get the current max position
+        cursor.execute(
+            'SELECT COALESCE(MAX(position), -1) FROM playlist_songs WHERE playlist_id = %s',
+            (playlist_id,)
+        )
+        max_pos = cursor.fetchone()[0]
+        new_pos = max_pos + 1
+        
+        cursor.execute(
+            'INSERT INTO playlist_songs (playlist_id, song_id, position) VALUES (%s, %s, %s)',
+            (playlist_id, song_id, new_pos)
         )
         conn.commit()
         
@@ -162,6 +181,63 @@ def add_song_to_playlist(playlist_id):
     
     except Exception as e:
         conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        close_db(conn)
+
+@playlists_bp.route('/<int:playlist_id>/songs/reorder', methods=['PUT'])
+def reorder_songs(playlist_id):
+    """重新排序歌单中的歌曲"""
+    data = request.get_json()
+    song_ids = data.get('song_ids')  # List of song_ids in new order
+    
+    if not song_ids or not isinstance(song_ids, list):
+        return jsonify({'error': '无效的歌曲ID列表'}), 400
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # Update each song's position
+        for index, song_id in enumerate(song_ids):
+            cursor.execute(
+                'UPDATE playlist_songs SET position = %s WHERE playlist_id = %s AND song_id = %s',
+                (index, playlist_id, song_id)
+            )
+        conn.commit()
+        return jsonify({'message': '排序更新成功'}), 200
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cursor.close()
+        close_db(conn)
+
+@playlists_bp.route('/<int:playlist_id>/songs/batch', methods=['DELETE'])
+def remove_songs_batch(playlist_id):
+    """批量从歌单移除歌曲"""
+    data = request.get_json()
+    song_ids = data.get('song_ids')
+    
+    if not song_ids or not isinstance(song_ids, list):
+        return jsonify({'error': '无效的歌曲ID列表'}), 400
+        
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    try:
+        # Use ANY for efficient batch deletion with array
+        cursor.execute(
+            'DELETE FROM playlist_songs WHERE playlist_id = %s AND song_id = ANY(%s)',
+            (playlist_id, song_ids)
+        )
+        conn.commit()
+        
+        return jsonify({'message': '删除成功', 'deleted_count': cursor.rowcount}), 200
+    except Exception as e:
+        conn.rollback()
+        print(e)
         return jsonify({'error': str(e)}), 500
     finally:
         cursor.close()

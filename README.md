@@ -1,13 +1,14 @@
 ### 中山大学2023级数据库系统概念期末大作业
+
 ## 1. 应用需求介绍
 
 在线音乐管理播放平台，核心目标就是给用户提供顺手、便捷的个人音乐库管理服务，围绕“管好音乐、轻松听歌”展开。
 
-一、用户认证系统
+**一、用户认证系统**
 
 用户得先登录才能用平台的所有功能，未登录状态下只有登录注册页面，没法操作个人音乐库、创建歌单这些核心功能。系统要妥善保管用户的个人信息，同时明确用户的数据权限——每个人只能查看、管理自己添加的歌手、专辑、歌曲和歌单，看不到其他用户的私有内容，保障数据独立性。
 
-二、资源管理
+**二、资源管理**
 
 这部分主要是让用户能自主打理音乐相关资源，每一项都要实用好操作。
 
@@ -17,11 +18,11 @@
 
 歌曲管理：核心是支持上传本地歌曲文件，上传后系统自动抓取或让用户补充元数据，包括歌曲标题、播放时长、所属专辑和歌手，确保每首歌信息完整。上传完成后就能直接在线播放，不用跳转其他工具。
 
-三、歌单功能
+**三、歌单功能**
 
-歌单是用户整理个性化曲库的核心，支持自由创建自定义歌单，自己起名字、备注用途（比如“通勤歌单”“健身必备”）。后续可以随意把喜欢的歌曲加入歌单
+歌单是用户整理个性化曲库的核心，支持自由创建自定义歌单，自己起名字、备注用途（比如“通勤歌单”“健身必备”）。后续可以随意把喜欢的歌曲加入歌单，也能批量或单独移除不想要的歌曲，还能拖拽调整歌曲在歌单里的顺序，完全按自己的喜好打理。
 
-四、播放功能
+**四、播放功能**
 
 前端页面要设置一个全局播放条，固定在页面底部，不管用户浏览到平台哪个页面，都能随时控制音乐播放状态。播放条上要包含最基础的播放、暂停按钮，还有上一曲、下一曲切换控件，操作直观。
 
@@ -40,12 +41,13 @@ flowchart LR
     %% 样式定义：左对齐文本，带边框
     classDef entity fill:#fdfdfd,stroke:#000,stroke-width:2px,text-align:left;
     classDef relation shape:diamond,fill:#fdfdfd,stroke:#000,stroke-width:2px;
+    classDef attribute shape:rect,fill:#fdfdfd,stroke:#000,stroke-width:1px,stroke-dasharray: 5 5;
 
     %% --- 实体 (Entities) ---
     User["**User (用户)**<br>-------------------<br><u>user_id</u><br>username<br>password"]:::entity
     Artist["**Artist (歌手)**<br>-------------------<br><u>artist_id</u><br>name"]:::entity
     Album["**Album (专辑)**<br>-------------------<br><u>album_id</u><br>title"]:::entity
-    Song["**Song (歌曲)**<br>-------------------<br><u>song_id</u><br>title<br>duration<br>file_url<br>upload_time"]:::entity
+    Song["**Song (歌曲)**<br>-------------------<br><u>song_id</u><br>title<br>duration<br>file_url<br>upload_time<br>file_data<br>file_mime<br>"]:::entity
     Playlist["**Playlist (歌单)**<br>-------------------<br><u>playlist_id</u><br>name"]:::entity
 
     %% --- 关系 (Relationships) ---
@@ -54,6 +56,9 @@ flowchart LR
     R_Has{拥有<br>Has}:::relation
     R_Contains{包含<br>Contains}:::relation
     R_Included{收录<br>Included_in}:::relation
+
+    %% --- 关系属性 (Relationship Attributes) ---
+    Attr_Position(position):::attribute
 
     %% --- 连线与基数 (Cardinality) ---
     %% 用户 1:N 歌曲 (上传)
@@ -70,11 +75,15 @@ flowchart LR
 
     %% 歌单 M:N 歌曲 (多对多)
     Playlist --- R_Included --- Song
+    
+    %% --- 属性连接 ---
+    R_Included -.- Attr_Position
 ```
 
 ### 2.3 表结构说明
 
 #### users (用户表)
+
 存储用户基本信息，是整个系统的核心实体表。
 
 | 字段名 | 数据类型 | 约束 | 说明 |
@@ -84,6 +93,7 @@ flowchart LR
 | password | VARCHAR(100) | NOT NULL | 用户密码 |
 
 #### artists (歌手表)
+
 存储歌手信息，每条记录关联到创建它的用户，实现用户级别的数据隔离。
 
 | 字段名 | 数据类型 | 约束 | 说明 |
@@ -93,6 +103,7 @@ flowchart LR
 | user_id | INT | FOREIGN KEY → users(user_id) | 创建该歌手的用户ID |
 
 #### albums (专辑表)
+
 存储专辑信息，每个专辑关联一个歌手和创建用户。
 
 | 字段名 | 数据类型 | 约束 | 说明 |
@@ -103,6 +114,7 @@ flowchart LR
 | user_id | INT | FOREIGN KEY → users(user_id) | 创建该专辑的用户ID |
 
 #### songs (歌曲表)
+
 存储歌曲核心信息及文件路径，关联歌手、专辑和上传用户。
 
 | 字段名 | 数据类型 | 约束 | 说明 |
@@ -115,8 +127,12 @@ flowchart LR
 | file_url | VARCHAR(255) | - | 音频文件存储路径 |
 | user_id | INT | FOREIGN KEY → users(user_id) | 上传该歌曲的用户ID |
 | upload_time | TIMESTAMP | - | 上传时间戳 |
+| file_data   | BYTEA          | - | 音频文件的二进制数据     |
+| file_mime   | VARCHAR(100)   | - | 音频文件的 MIME 类型     |
+
 
 #### playlists (歌单表)
+
 存储用户创建的歌单基本信息。
 
 | 字段名 | 数据类型 | 约束 | 说明 |
@@ -126,12 +142,14 @@ flowchart LR
 | user_id | INT | FOREIGN KEY → users(user_id) | 创建该歌单的用户ID |
 
 #### playlist_songs (歌单-歌曲关联表)
+
 多对多关系的中间表，实现歌单与歌曲的关联。一个歌单可以包含多首歌曲，一首歌曲也可以被添加到多个歌单中。
 
 | 字段名 | 数据类型 | 约束 | 说明 |
 |--------|----------|------|------|
 | playlist_id | INT | FOREIGN KEY → playlists(playlist_id) | 歌单ID |
 | song_id | INT | FOREIGN KEY → songs(song_id) | 歌曲ID |
+| position | INT | - | 歌曲位于歌单的位置 |
 | - | - | PRIMARY KEY (playlist_id, song_id) | 联合主键，确保同一歌单中不重复添加同一歌曲 |
 
 ## 3. 系统实现
@@ -231,11 +249,15 @@ flowchart LR
 
 歌手管理页面展示当前用户添加的所有歌手信息列表。页面提供"添加歌手"按钮，点击后弹出表单对话框，允许用户输入歌手名称等信息。歌手列表以卡片或表格形式展示，每个歌手条目支持查看详情、编辑和删除操作。这里展示的歌手数据仅限于当前登录用户创建的内容。
 
+点击歌手卡片将展示该歌手的歌曲和专辑。
+
 ![alt text](assets/image-2.png)
 
 - **专辑管理界面**:
 
 专辑管理页面用于查看和管理用户创建的专辑。创建专辑时需要选择已有的歌手进行关联，建立专辑与歌手的从属关系。页面列表展示专辑标题、所属歌手等信息，支持对专辑进行编辑和删除操作。
+
+点击对应专辑将会展示专辑下所属歌曲。
 
 ![alt text](assets/image-3.png)
 
@@ -251,13 +273,15 @@ flowchart LR
 
 歌单管理页面展示用户创建的所有歌单。用户可以创建新歌单并自定义名称，点击歌单后进入歌单详情页面，查看该歌单包含的所有歌曲。
 
-歌单详情页面显示歌单内的歌曲列表，提供"添加歌曲"功能，允许用户从自己的音乐库中选择歌曲加入当前歌单。歌单内的歌曲支持播放和移除操作，用户可以灵活管理歌单内容。
+歌单详情页面显示歌单内的歌曲列表，提供"添加歌曲"功能，允许用户从自己的音乐库中选择歌曲加入当前歌单。歌单内的歌曲支持播放和移除操作，用户可以灵活管理歌单内容。包括可以按住左侧按钮自由拖动歌曲项按照自己的喜好进行排序，以及批量删除歌曲的功能。
 
 ![alt text](assets/image-5.png)
 
 - **播放控制条**:
 
 播放控制条固定在页面底部，在所有页面均可见。控制条显示当前播放歌曲的标题和歌手信息，提供播放/暂停、上一曲、下一曲等基本控制按钮。播放进度通过进度条直观展示，用户可以拖动进度条快速定位播放位置。播放状态在全局共享，切换页面不会中断音乐播放。
+
+![alt text](assets/image-6.png)
 
 
 ## 4. 成员分工
@@ -270,5 +294,7 @@ flowchart LR
 采用容器化部署方式，用docker部署在容器托管平台上。
 
 可运行网址: http://music.lanternian.xyz
+
+(初次运行可能由于平台动态资源限制，加载较慢，耐心等待即可)
 
 

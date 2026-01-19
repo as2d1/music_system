@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+
+# VSCode
+.vscode/
+!.vscode/extensions.json
+
+# Node/Vue
+node_modules/
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Virtual Environment
+venv/
+
+# OpenGauss
+opengauss/
+
+# Backend uploads
+backend/uploads/

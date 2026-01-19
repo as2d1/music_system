@@ -8,12 +8,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.3.4",
-    "vue-router": "^4.2.4",
+    "@element-plus/icons-vue": "^2.1.0",
     "axios": "^1.5.0",
     "element-plus": "^2.4.0",
-    "@element-plus/icons-vue": "^2.1.0",
-    "pinia": "^2.1.6"
+    "music-metadata-browser": "^2.5.11",
+    "pinia": "^2.1.6",
+    "sortablejs": "^1.15.6",
+    "vue": "^3.3.4",
+    "vue-router": "^4.2.4"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^4.3.4",

@@ -39,5 +39,10 @@ CREATE TABLE IF NOT EXISTS playlists (
 CREATE TABLE IF NOT EXISTS playlist_songs (
     playlist_id INT REFERENCES playlists(playlist_id),
     song_id     INT REFERENCES songs(song_id),
+    position    INT DEFAULT 0,
     PRIMARY KEY (playlist_id, song_id)
 );
+
+INSERT INTO users (username, password) VALUES ('JX', '123456');
+
+

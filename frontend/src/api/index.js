@@ -85,7 +85,9 @@ export const playlistsAPI = {
   create: (data) => request.post('/playlists/', data),
   delete: (id) => request.delete(`/playlists/${id}`),
   addSong: (playlistId, songId) => request.post(`/playlists/${playlistId}/songs`, { song_id: songId }),
-  removeSong: (playlistId, songId) => request.delete(`/playlists/${playlistId}/songs/${songId}`)
+  removeSong: (playlistId, songId) => request.delete(`/playlists/${playlistId}/songs/${songId}`),
+  removeSongsBatch: (playlistId, songIds) => request.delete(`/playlists/${playlistId}/songs/batch`, { data: { song_ids: songIds } }),
+  reorderSongs: (playlistId, songIds) => request.put(`/playlists/${playlistId}/songs/reorder`, { song_ids: songIds })
 }
 
 export default request

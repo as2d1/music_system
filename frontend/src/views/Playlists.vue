@@ -103,15 +103,31 @@
             <el-button type="primary" @click="showAddSongDialog" :icon="Plus">
               添加歌曲
             </el-button>
+            <el-button 
+              type="danger" 
+              @click="handleBatchRemove" 
+              :icon="Delete" 
+              :disabled="selectedSongs.length === 0"
+            >
+              批量移除
+            </el-button>
           </div>
         </div>
 
         <el-table
+          ref="tableRef"
           :data="currentPlaylist?.songs || []"
           style="width: 100%"
           v-loading="detailLoading"
+          row-key="song_id"
+          @selection-change="handleSelectionChange"
         >
-          <el-table-column type="index" label="#" width="60" />
+          <el-table-column type="selection" width="55" />
+          <el-table-column type="index" label="#" width="60">
+            <template #default>
+              <el-icon style="cursor: move"><Grid /></el-icon>
+            </template>
+          </el-table-column>
           <el-table-column label="播放" width="80" align="center">
             <template #default="{ row }">
               <el-button
@@ -198,9 +214,10 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Delete, Menu, VideoPlay } from '@element-plus/icons-vue'
+import { Plus, Delete, Menu, VideoPlay, Grid } from '@element-plus/icons-vue'
+import Sortable from 'sortablejs'
 import { playlistsAPI, songsAPI } from '@/api'
 import { useUserStore } from '@/stores/user'
 import { usePlayerStore } from '@/stores/player'
@@ -220,6 +237,9 @@ const detailDialogVisible = ref(false)
 const addSongDialogVisible = ref(false)
 const songSearchKeyword = ref('')
 const createFormRef = ref(null)
+const tableRef = ref(null)
+const selectedSongs = ref([])
+let sortableInstance = null
 
 const createFormData = reactive({
   name: ''
@@ -230,6 +250,98 @@ const createRules = {
     { required: true, message: '请输入歌单名称', trigger: 'blur' }
   ]
 }
+
+const handleSelectionChange = (selection) => {
+  selectedSongs.value = selection
+}
+
+const handleBatchRemove = async () => {
+  if (selectedSongs.value.length === 0) return
+
+  try {
+    await ElMessageBox.confirm(
+      `确定要从歌单中移除选中的 ${selectedSongs.value.length} 首歌曲吗？`,
+      '提示',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+
+    detailLoading.value = true
+    const songIds = selectedSongs.value.map(s => s.song_id)
+    
+    await playlistsAPI.removeSongsBatch(currentPlaylist.value.playlist_id, songIds)
+    ElMessage.success('批量移除成功')
+    
+    // Refresh playlist
+    await viewPlaylistDetail(currentPlaylist.value)
+    selectedSongs.value = []
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error(error)
+      ElMessage.error('批量移除失败')
+    }
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+const initSortable = () => {
+  if (!tableRef.value) return
+  const tbody = tableRef.value.$el.querySelector('.el-table__body-wrapper tbody')
+  if (!tbody) return
+  
+  if (sortableInstance) sortableInstance.destroy()
+
+  sortableInstance = Sortable.create(tbody, {
+    handle: '.el-icon', // Use the Grid icon as handle
+    animation: 150,
+    onEnd: async ({ newIndex, oldIndex }) => {
+      if (newIndex === oldIndex) return
+      
+      const playlist = currentPlaylist.value
+      if (!playlist || !playlist.songs) return
+
+      // Update local array first for smooth UX
+      const targetRow = playlist.songs.splice(oldIndex, 1)[0]
+      playlist.songs.splice(newIndex, 0, targetRow)
+      
+      const songIds = playlist.songs.map(s => s.song_id)
+      
+      try {
+        await playlistsAPI.reorderSongs(playlist.playlist_id, songIds)
+      } catch (error) {
+        console.error('排序更新失败', error)
+        ElMessage.error('排序更新失败')
+        // Revert (optional, or just refresh)
+        await viewPlaylistDetail(playlist)
+      }
+    }
+  })
+}
+
+watch(detailDialogVisible, (val) => {
+  if (val) {
+    nextTick(() => {
+      initSortable()
+    })
+  } else {
+    if (sortableInstance) {
+      sortableInstance.destroy()
+      sortableInstance = null
+    }
+  }
+})
+
+watch(() => currentPlaylist.value?.songs, () => {
+   if (detailDialogVisible.value) {
+     nextTick(() => {
+       initSortable()
+     })
+   }
+})
 
 const filteredAvailableSongs = computed(() => {
   if (!songSearchKeyword.value) return allSongs.value
